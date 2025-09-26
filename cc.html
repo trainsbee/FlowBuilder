@@ -1,0 +1,1619 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Flowchart Minimalista</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  display: flex;
+  height: 100vh;
+  background: #fafafa;
+  color: #333;
+  overflow: hidden; /* Evita scroll horizontal global */
+}
+.sidebar {
+  width: 240px;
+  padding: 20px;
+  background: #fff;
+  border-right: 1px solid #e5e5e5;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto; /* Scroll vertical solo si es necesario */
+}
+.right-sidebar {
+  width: 300px;
+  padding: 20px;
+  background: #fff;
+  border-left: 1px solid #e5e5e5;
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+.right-sidebar.active {
+  display: flex;
+}
+.sidebar h3, .right-sidebar h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111;
+}
+button {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+button:hover {
+  background: #f8f8f8;
+  border-color: #ccc;
+}
+button:active {
+  transform: translateY(1px);
+}
+#clearFlow, #saveFlow, #loadFlow {
+  background: #f5f5f5;
+  color: #666;
+  margin-top: 8px;
+}
+#clearFlow:hover, #saveFlow:hover, #loadFlow:hover {
+  background: #eee;
+}
+.canvas-wrap {
+  flex: 1;
+  position: relative;
+  background: #fafafa;
+  overflow: visible; /* Permite que las líneas sean visibles fuera del área */
+}
+.canvas-inner {
+  width: 100%; /* Ajusta al ancho del contenedor padre */
+  height: 100%; /* Ajusta a la altura del contenedor padre */
+  position: relative;
+  min-width: 1000px; /* Mínimo ancho para evitar que se colapse */
+  min-height: 1000px; /* Mínima altura para permitir panning */
+  /* Adding grid background pattern */
+  background-image: 
+    linear-gradient(to right, #e5e5e5 1px, transparent 1px),
+    linear-gradient(to bottom, #e5e5e5 1px, transparent 1px);
+  background-size: 20px 20px;
+  background-position: 0 0;
+}
+.box {
+  position: absolute;
+  min-height: 70px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  cursor: move;
+  padding: 12px;
+  font-size: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  transition: box-shadow 0.15s ease;
+  display: flex;
+  flex-direction: column;
+}
+.box:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.box.selected {
+  border-color: #3b82f6;
+  box-shadow: 0 2px 8px rgba(59,130,246,0.3);
+}
+.box .header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+.box .body {
+  flex: 1;
+  margin: 8px 0;
+}
+.box .footer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+.box strong {
+  font-size: 13px;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 4px;
+}
+.box small {
+  color: #666;
+  font-size: 11px;
+}
+.box.trigger { border-left: 3px solid #10b981; }
+.box.questions { border-left: 3px solid #3b82f6; }
+.box.decision { border-left: 3px solid #f59e0b; }
+.box.flow { border-left: 3px solid #8b5cf6; }
+.box.end { border-left: 3px solid #ef4444; }
+.anchor {
+  width: 6px;
+  height: 6px;
+  border: 1px solid #999;
+  border-radius: 50%;
+  position: absolute;
+  background: #fff;
+  transition: all 0.15s ease;
+}
+.anchor:hover {
+  width: 8px;
+  height: 8px;
+  border-color: #666;
+  background: #f0f0f0;
+}
+.anchor[data-pos="left"] {
+  left: -4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.anchor[data-pos="right"] {
+  right: -4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.anchor.active-anchor {
+  border-color: #3b82f6;
+  background: #3b82f6;
+  width: 8px;
+  height: 8px;
+}
+.conn-line {
+  stroke: #666;
+  stroke-width: 1.5;
+  fill: none;
+  opacity: 0.8;
+}
+.json-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e5e5e5;
+}
+.json-section strong {
+  font-size: 12px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+pre {
+  font-size: 10px;
+  background: #f8f8f8;
+  padding: 12px;
+  border-radius: 6px;
+  max-height: 200px;
+  overflow: auto;
+  margin: 8px 0 0 0;
+  border: 1px solid #e5e5e5;
+  color: #555;
+}
+.anchor.hidden { display: none; }
+.branches {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+.branches .branch-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto;
+  gap: 4px;
+}
+.branches .branch-input {
+  padding: 4px 6px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 11px;
+  background: #fafafa;
+}
+.branches .branch-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  background: #fff;
+}
+.add-branch {
+  font-size: 10px;
+  padding: 4px 8px;
+  margin-top: 4px;
+  background: #f8f8f8;
+  color: #666;
+  border: 1px solid #e5e5e5;
+}
+.add-branch:hover {
+  background: #eee;
+}
+.del-box {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.del-box:hover {
+  background: #fecaca;
+}
+.key-input, .title-input, .question-text {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 11px;
+  background: #fafafa;
+}
+.key-input:focus, .title-input:focus, .question-text:focus {
+  outline: none;
+  border-color: #3b82f6;
+  background: #fff;
+}
+.key-input.invalid, .qopt-input.invalid {
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+.trigger-list .trigger-row, .qopt-list .qopt-row {
+  display: flex;
+  gap: 4px;
+  margin: 2px 0;
+}
+.trigger-list .trigger-input, .qopt-list .qopt-input {
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 11px;
+  background: #fafafa;
+}
+.trigger-list .trigger-input:focus, .qopt-list .qopt-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  background: #fff;
+}
+.trigger-list .del-trigger, .qopt-list .del-qopt, .file-list .del-file {
+  padding: 2px 6px;
+  font-size: 10px;
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.trigger-list .del-trigger:hover, .qopt-list .del-qopt:hover, .file-list .del-file:hover {
+  background: #fecaca;
+}
+.add-trigger, .add-qopt, .add-file, .add-branch {
+  font-size: 10px;
+  padding: 4px 8px;
+  margin-top: 4px;
+  background: #f8f8f8;
+  color: #666;
+  border: 1px solid #e5e5e5;
+}
+.add-trigger:hover, .add-qopt:hover, .add-file:hover, .add-branch:hover {
+  background: #eee;
+}
+.file-list .file-row {
+  display: flex;
+  gap: 4px;
+  margin: 2px 0;
+  align-items: center;
+}
+.file-list .file-name {
+  flex: 1;
+  font-size: 11px;
+  color: #333;
+}
+.edit-btn {
+  margin-top: 8px;
+  background: #f0f0f0;
+  color: #333;
+}
+.edit-btn:hover {
+  background: #e0e0e0;
+}
+.title-display, .key-display {
+  font-size: 13px;
+  font-weight: 500;
+}
+.key-display {
+  color: #666;
+  font-size: 11px;
+}
+.box-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.box-field label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #444;
+}
+.close-edit {
+  background: #f5f5f5;
+  color: #666;
+  margin-top: 16px;
+}
+.close-edit:hover {
+  background: #eee;
+}
+.delete-button {
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+.delete-button:hover {
+  opacity: 1;
+}
+/* Adding alignment guide styles */
+.alignment-guide {
+  position: absolute;
+  background: #3b82f6;
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 1000;
+}
+.alignment-guide.vertical {
+  width: 2px;
+  height: 100%;
+  top: 0;
+}
+.alignment-guide.horizontal {
+  height: 2px;
+  width: 100%;
+  left: 0;
+}
+.alignment-guide.hidden {
+  display: none;
+}
+</style>
+</head>
+<body>
+<aside class="sidebar">
+<h3>Flowchart</h3>
+<button id="addTrigger">+ Trigger</button>
+<button id="addQuestions">+ Questions</button>
+<button id="addDecision">+ Decision</button>
+<button id="addFlow">+ Flow</button>
+<button id="addEnd">+ End</button>
+<button id="clearFlow">Limpiar Todo</button>
+<button id="saveFlow">Guardar Diagrama</button>
+<button id="loadFlow">Cargar Diagrama</button>
+<div class="json-section">
+<strong>JSON Output</strong>
+<pre id="jsonView">{}</pre>
+</div>
+</aside>
+<div class="canvas-wrap">
+  <div class="canvas-inner" id="canvas">
+    <svg id="svg" width="100%" height="100%" style="position:absolute;left:0;top:0;"></svg>
+  </div>
+</div>
+<aside class="right-sidebar">
+<h3>Editar Nodo</h3>
+<div class="edit-panel"></div>
+</aside>
+<input type="file" id="fileInput" style="display:none" accept=".json">
+<script>
+// Core: Base Classes and Common Logic
+class BaseBox {
+  constructor(flow, id, type, x=60, y=60, title='Nodo', key=`${type}_${id.split('_')[1]}`) {
+    this.flow = flow;
+    this.id = id;
+    this.type = type;
+    this.x = x;
+    this.y = y;
+    this.w = 140;
+    this.h = 70;
+    this.title = title;
+    this.key = key;
+    this.anchors = {};
+    this.inlineEditing = this.type === 'decision';
+  }
+  initElement() {
+    this.el = this._createElement();
+    this._enableDrag();
+    this.updatePosition();
+    this._validateKey();
+    if (this.inlineEditing) {
+      const titleInput = this.el.querySelector('.title-input');
+      if (titleInput) titleInput.addEventListener('input', e => { this.title = e.target.value; this.flow.updateJSON(); });
+      const keyInput = this.el.querySelector('.key-input');
+      if (keyInput) keyInput.addEventListener('input', e => { this.key = e.target.value; this._validateKey(); this.flow.updateJSON(); });
+    }
+    const delBoxBtn = this.el.querySelector('.del-box');
+    if (delBoxBtn) delBoxBtn.addEventListener('click', () => this.flow.removeBox(this.id));
+    const editBtn = this.el.querySelector('.edit-btn');
+    if (editBtn) editBtn.addEventListener('click', () => this.flow.selectBox(this));
+    this.addAnchors();
+    this.updateDisplay();
+  }
+  _validateKey() {
+    const keyInput = this.flow.editSidebar.querySelector('.key-input') || this.el.querySelector('.key-input');
+    if (!keyInput) return;
+    const isDuplicate = [...this.flow.boxes.values()].some(b => b !== this && b.key === this.key && this.key);
+    keyInput.classList.toggle('invalid', isDuplicate);
+    keyInput.title = isDuplicate ? 'Clave duplicada' : '';
+  }
+  _createHeader() {
+    if (this.inlineEditing) {
+      return `
+        <div class="header">
+          <button class="del-box">×</button>
+          <input class="title-input" type="text" value="${this.title}">
+          <input class="key-input" type="text" value="${this.key}" placeholder="Key">
+        </div>
+      `;
+    } else {
+      return `
+        <div class="header">
+          <button class="del-box">×</button>
+          <span class="title-display">${this.title}</span>
+          <span class="key-display">${this.key}</span>
+        </div>
+      `;
+    }
+  }
+  _createBody() {
+    return '<div class="body"></div>';
+  }
+  _createFooter() {
+    return `<div class="footer"><small>${this.type}</small></div>`;
+  }
+  _createElement() {
+    const el = document.createElement('div');
+    el.className = `box ${this.type}`;
+    el.dataset.id = this.id;
+    el.innerHTML = this._createHeader() + this._createBody() + this._createFooter();
+    this.flow.stage.appendChild(el);
+    return el;
+  }
+  addAnchors() {
+    if (this.isInputAllowed('left')) this.addAnchor('left');
+    if (this.isOutputAllowed('right')) this.addAnchor('right');
+  }
+  addAnchor(pos) {
+    const anchor = document.createElement('div');
+    anchor.className = 'anchor';
+    anchor.dataset.pos = pos;
+    anchor.dataset.box = this.id;
+    this.el.appendChild(anchor);
+    this.anchors[pos] = anchor;
+  }
+  isInputAllowed(pos) {
+    return this.type !== 'trigger' && pos === 'left';
+  }
+  isOutputAllowed(pos) {
+    if (this.type === 'end') return false;
+    if (this.type === 'decision') return pos.startsWith('out');
+    return pos === 'right';
+  }
+  _enableDrag() {
+    let startX, startY, origX, origY, dragging = false;
+    this.el.addEventListener('mousedown', e => {
+      if (e.target.classList.contains('anchor') || e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+      dragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      origX = this.x;
+      origY = this.y;
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      this.x = origX + (e.clientX - startX);
+      this.y = origY + (e.clientY - startY);
+      
+      const gridSize = 20;
+      this.x = Math.round(this.x / gridSize) * gridSize;
+      this.y = Math.round(this.y / gridSize) * gridSize;
+      
+      this.updatePosition();
+      this.flow.showAlignmentGuides(this);
+      this.flow.requestUpdate();
+    });
+    window.addEventListener('mouseup', () => {
+      if (dragging) {
+        dragging = false;
+        this.flow.hideAlignmentGuides();
+        this.flow.updateJSON();
+      }
+    });
+  }
+  getAnchorPos(pos) {
+    const anchorEl = this.anchors[pos];
+    if (!anchorEl || anchorEl.classList.contains('hidden')) return null;
+    const rect = anchorEl.getBoundingClientRect();
+    const canvasRect = this.flow.stage.getBoundingClientRect();
+    return {
+      x: rect.left + rect.width / 2 - canvasRect.left,
+      y: rect.top + rect.height / 2 - canvasRect.top
+    };
+  }
+  updatePosition() {
+    this.el.style.transform = `translate(${this.x - this.flow.panX}px, ${this.y - this.flow.panY}px)`;
+  }
+  updateDisplay() {
+    if (this.inlineEditing) return;
+    const titleDisp = this.el.querySelector('.title-display');
+    if (titleDisp) titleDisp.textContent = this.title;
+    const keyDisp = this.el.querySelector('.key-display');
+    if (keyDisp) keyDisp.textContent = this.key;
+  }
+  serialize() {
+    return {
+      id: this.id,
+      type: this.type,
+      x: this.x,
+      y: this.y,
+      w: this.w,
+      h: this.h,
+      title: this.title,
+      key: this.key
+    };
+  }
+  destroy() {
+    this.el.remove();
+  }
+}
+// Node-Specific Classes
+class TriggerBox extends BaseBox {
+  constructor(flow, id, x, y, title, key) {
+    super(flow, id, 'trigger', x, y, title, key);
+    this.triggers = ['hola', 'hello'];
+    this.steps = [];
+    this.initElement();
+  }
+  _createBody() {
+    if (this.inlineEditing) {
+      return `
+        <div class="body">
+          <div class="trigger-list"></div>
+        </div>
+      `;
+    } else {
+      return `
+        <div class="body">
+          <button class="edit-btn">Editar Nodo</button>
+        </div>
+      `;
+    }
+  }
+  _createFooter() {
+    if (this.inlineEditing) {
+      return `
+        <div class="footer">
+          <button class="add-trigger">+ Palabra</button>
+          <small>${this.type}</small>
+        </div>
+      `;
+    } else {
+      return `<div class="footer"><small>${this.type}</small></div>`;
+    }
+  }
+  renderTriggers() {
+    const container = this.flow.editSidebar.querySelector('.trigger-list');
+    if (!container) return;
+    container.innerHTML = '';
+    this.triggers.forEach((word, index) => {
+      const row = document.createElement('div');
+      row.className = 'trigger-row';
+      row.innerHTML = `
+        <input class="trigger-input" type="text" value="${word}">
+        <button class="del-trigger" data-index="${index}">×</button>
+      `;
+      const input = row.querySelector('.trigger-input');
+      input.addEventListener('input', e => {
+        this.triggers[index] = e.target.value;
+        this.flow.updateJSON();
+      });
+      const delBtn = row.querySelector('.del-trigger');
+      delBtn.addEventListener('click', () => this.removeTrigger(index));
+      container.appendChild(row);
+    });
+  }
+  addTrigger() {
+    this.triggers.push('');
+    this.renderTriggers();
+    this.flow.updateJSON();
+  }
+  removeTrigger(index) {
+    this.triggers.splice(index, 1);
+    this.renderTriggers();
+    this.flow.updateJSON();
+  }
+  serialize() {
+    const base = super.serialize();
+    base.triggers = this.triggers;
+    base.steps = this.steps;
+    return base;
+  }
+}
+class QuestionsBox extends BaseBox {
+  constructor(flow, id, x, y, title, key, question = '¿Qué desea?') {
+    super(flow, id, 'questions', x, y, title, key);
+    this.question = question || '¿Qué desea?';
+    this.options = [
+      { key: 'cafe', keywords: ['cafe', 'coffee', 'cafes'] },
+      { key: 'latte', keywords: ['latte', 'latte coffee'] },
+      { key: 'americano', keywords: ['americano', 'american coffee'] },
+      { key: 'cappuccino', keywords: ['cappuccino', 'cappucino'] }
+    ];
+    this.files = [];
+    this.initElement();
+  }
+  _createBody() {
+    if (this.inlineEditing) {
+      return `
+        <div class="body">
+          <div class="box-field">
+            <label>Pregunta</label>
+            <input class="question-text" type="text" value="${this.question}">
+          </div>
+          <div class="box-field">
+            <label>Options (key → [keywords])</label>
+            <div class="qopt-list"></div>
+          </div>
+          <div class="box-field">
+            <label>Archivos</label>
+            <div class="file-list"></div>
+          </div>
+        </div>
+      `;
+    } else {
+      return `
+        <div class="body">
+          <button class="edit-btn">Editar Nodo</button>
+        </div>
+      `;
+    }
+  }
+  _createFooter() {
+    if (this.inlineEditing) {
+      return `
+        <div class="footer">
+          <button class="add-qopt">+ Opción</button>
+          <button class="add-file">+ Archivo</button>
+          <small>${this.type}</small>
+        </div>
+      `;
+    } else {
+      return `<div class="footer"><small>${this.type}</small></div>`;
+    }
+  }
+  renderQuestionOptionsObject() {
+    const container = this.flow.editSidebar.querySelector('.qopt-list');
+    if (!container) return;
+    container.innerHTML = '';
+    this.options.forEach((opt, index) => {
+      const row = document.createElement('div');
+      row.className = 'qopt-row';
+      row.innerHTML = `
+        <input class="qopt-input" type="text" value="${opt.key}" placeholder="key">
+        <input class="qopt-input" type="text" value="${opt.keywords.join(', ')}" placeholder="keywords (comma-separated)">
+        <button class="del-qopt">×</button>
+      `;
+      const [keyInput, keywordsInput, delBtn] = row.querySelectorAll('.qopt-input, .del-qopt');
+      keyInput.addEventListener('input', e => {
+        opt.key = e.target.value;
+        const isDuplicate = this.options.some((o, i) => i !== index && o.key === opt.key && opt.key);
+        keyInput.classList.toggle('invalid', isDuplicate);
+        keyInput.title = isDuplicate ? 'Clave duplicada en opciones' : '';
+        if (!isDuplicate) {
+          this.flow.updateJSON();
+        }
+      });
+      keywordsInput.addEventListener('input', e => {
+        opt.keywords = e.target.value.split(',').map(k => k.trim()).filter(k => k);
+        this.flow.updateJSON();
+      });
+      delBtn.addEventListener('click', () => {
+        this.options.splice(index, 1);
+        this.renderQuestionOptionsObject();
+        this.flow.updateJSON();
+      });
+      container.appendChild(row);
+    });
+  }
+  addQuestionOptionObject() {
+    let base = 'option';
+    let idx = this.options.length + 1;
+    this.options.push({ key: `${base}${idx}`, keywords: [''] });
+    this.renderQuestionOptionsObject();
+    this.flow.updateJSON();
+  }
+  renderFiles() {
+    const container = this.flow.editSidebar.querySelector('.file-list');
+    if (!container) return;
+    container.innerHTML = '';
+    this.files.forEach((file, index) => {
+      const row = document.createElement('div');
+      row.className = 'file-row';
+      row.innerHTML = `
+        <span class="file-name">${file.name}</span>
+        <button class="del-file" data-index="${index}">×</button>
+      `;
+      const delBtn = row.querySelector('.del-file');
+      delBtn.addEventListener('click', () => this.removeFile(index));
+      container.appendChild(row);
+    });
+  }
+  addFile() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.addEventListener('change', e => {
+      Array.from(e.target.files).forEach(file => {
+        this.files.push(file);
+      });
+      this.renderFiles();
+      this.flow.updateJSON();
+    });
+    input.click();
+  }
+  removeFile(index) {
+    this.files.splice(index, 1);
+    this.renderFiles();
+    this.flow.updateJSON();
+  }
+  serialize() {
+    const base = super.serialize();
+    base.question = this.question;
+    base.options = this.options.reduce((acc, opt) => {
+      acc[opt.key] = opt.keywords;
+      return acc;
+    }, {});
+    base.files = this.files.map(file => ({ name: file.name }));
+    return base;
+  }
+}
+class DecisionBox extends BaseBox {
+  constructor(flow, id, x, y, title, key, question = '¿Qué desea?') {
+    super(flow, id, 'decision', x, y, title, key);
+    this.question = question || '¿Qué desea?';
+    this.options = [];
+    this.initElement();
+    const addBtn = this.el.querySelector('.add-branch');
+    if (addBtn) addBtn.addEventListener('click', () => this.addBranch());
+    const qInput = this.el.querySelector('.question-text');
+    if (qInput) qInput.addEventListener('input', e => { this.question = e.target.value; this.flow.updateJSON(); });
+    this.renderBranches();
+  }
+  _createBody() {
+    return `
+      <div class="body">
+        <div class="box-field">
+          <label>Pregunta</label>
+          <input class="question-text" type="text" value="${this.question}">
+        </div>
+        <div class="box-field">
+          <label>Options (flow_id → [keywords])</label>
+          <div class="branches"></div>
+        </div>
+      </div>
+    `;
+  }
+  _createFooter() {
+    return `
+      <div class="footer">
+        <button class="add-branch">+ Opción</button>
+        <small>${this.type}</small>
+      </div>
+    `;
+  }
+  addBranch() {
+    let idx = this.options.length + 1;
+    this.options.push({ flowId: `option${idx}`, keywords: [''] });
+    this.renderBranches();
+    const pos = `out${this.options.length - 1}`;
+    if (!this.anchors[pos]) {
+      this.addAnchor(pos);
+    }
+    this.repositionOutputs();
+    this.h += 25;
+    this.el.style.minHeight = `${this.h}px`;
+    this.flow.requestUpdate();
+    this.flow.updateJSON();
+  }
+  renderBranches() {
+    const container = this.el.querySelector('.branches');
+    if (!container) return;
+    container.innerHTML = '';
+    this.options.forEach((opt, index) => {
+      const row = document.createElement('div');
+      row.className = 'branch-row';
+      row.dataset.index = index;
+      row.innerHTML = `
+        <input class="branch-input" readonly type="text" value="${opt.flowId}" placeholder="flow_id">
+        <input class="branch-input" type="text" value="${opt.keywords.join(', ')}" placeholder="keywords (comma-separated)">
+        <button class="del">×</button>
+      `;
+      const [flowIdInput, keywordsInput, delBtn] = row.querySelectorAll('input,button');
+      keywordsInput.addEventListener('input', e => {
+        opt.keywords = e.target.value.split(',').map(k => k.trim()).filter(k => k);
+        this.flow.updateJSON();
+      });
+      delBtn.addEventListener('click', () => {
+        const outgoingConn = [...this.flow.conns.values()].find(c => c.fromBox === this && c.fromAnchor === `out${index}`);
+        if (outgoingConn) {
+          outgoingConn.destroy();
+          this.flow.conns.delete(outgoingConn.id);
+        }
+        this.options.splice(index, 1);
+        Object.keys(this.anchors).filter(k => k.startsWith('out')).forEach(pos => {
+          this.anchors[pos].remove();
+          delete this.anchors[pos];
+        });
+        [...this.flow.conns.values()].filter(c => c.fromBox === this && c.fromAnchor.startsWith('out')).forEach(conn => {
+          let anchorIndex = parseInt(conn.fromAnchor.replace('out', ''));
+          if (anchorIndex > index) {
+            conn.fromAnchor = `out${anchorIndex - 1}`;
+          }
+        });
+        this.renderBranches();
+        this.h = 70 + (this.options.length * 25);
+        this.el.style.minHeight = `${this.h}px`;
+        this.repositionOutputs();
+        this.flow.requestUpdate();
+        this.flow.updateJSON();
+      });
+      container.appendChild(row);
+      const pos = `out${index}`;
+      if (!this.anchors[pos]) {
+        this.addAnchor(pos);
+      }
+    });
+  }
+  repositionOutputs() {
+    const inputs = this.el.querySelectorAll('.branch-row');
+    inputs.forEach((row, i) => {
+      const pos = `out${i}`;
+      const anchor = this.anchors[pos];
+      if (anchor) {
+        const inputRect = row.getBoundingClientRect();
+        const containerRect = this.el.getBoundingClientRect();
+        const relativeTop = inputRect.top - containerRect.top + inputRect.height / 2;
+        anchor.style.right = '-4px';
+        anchor.style.top = `${relativeTop}px`;
+        anchor.style.transform = 'translateY(-50%)';
+      }
+    });
+  }
+  updatePosition() {
+    super.updatePosition();
+    this.repositionOutputs();
+  }
+  serialize() {
+    const base = super.serialize();
+    base.question = this.question;
+    base.options = this.options.reduce((acc, opt) => {
+      acc[opt.flowId] = opt.keywords;
+      return acc;
+    }, {});
+    return base;
+  }
+}
+class FlowBox extends BaseBox {
+  constructor(flow, id, x, y, title, key) {
+    super(flow, id, 'flow', x, y, title, key);
+    this.steps = [];
+    this.initElement();
+  }
+  _createBody() {
+    if (!this.inlineEditing) {
+      return `
+        <div class="body">
+          <button class="edit-btn">Editar Nodo</button>
+        </div>
+      `;
+    } else {
+      return super._createBody();
+    }
+  }
+  serialize() {
+    const base = super.serialize();
+    base.steps = this.steps;
+    return base;
+  }
+}
+class EndBox extends BaseBox {
+  constructor(flow, id, x, y, title, key, question = '¿Qué desea?') {
+    super(flow, id, 'end', x, y, title, key);
+    this.question = question || '¿Qué desea?';
+    this.initElement();
+  }
+  _createBody() {
+    if (this.inlineEditing) {
+      return `
+        <div class="body">
+          <div class="box-field">
+            <label>Pregunta</label>
+            <input class="question-text" type="text" value="${this.question}">
+          </div>
+        </div>
+      `;
+    } else {
+      return `
+        <div class="body">
+          <button class="edit-btn">Editar Nodo</button>
+        </div>
+      `;
+    }
+  }
+  serialize() {
+    const base = super.serialize();
+    base.question = this.question;
+    return base;
+  }
+}
+// Connections
+class Connector {
+  constructor(flow, id, fromBox, fromAnchor, toBox, toAnchor) {
+    this.flow = flow; this.id = id; this.fromBox = fromBox; this.fromAnchor = fromAnchor;
+    this.toBox = toBox; this.toAnchor = toAnchor;
+    this.path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    this.path.setAttribute('class', 'conn-line');
+    this.flow.svg.appendChild(this.path);
+  }
+  update() {
+    const a = this.fromBox.getAnchorPos(this.fromAnchor);
+    const b = this.toBox.getAnchorPos(this.toAnchor);
+    if (a && b) {
+      const offset = Math.abs(b.x - a.x) / 3;
+      const d = `M ${a.x} ${a.y} C ${a.x + offset} ${a.y} ${b.x - offset} ${b.y} ${b.x} ${b.y}`;
+      this.path.setAttribute('d', d);
+
+      // Añadir botón de eliminación (círculo en el centro de la línea)
+      if (!this.deleteButton) {
+        this.deleteButton = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        this.deleteButton.setAttribute('class', 'delete-button');
+        this.deleteButton.setAttribute('r', '8');
+        this.deleteButton.setAttribute('fill', '#ef4444');
+        this.deleteButton.setAttribute('stroke', '#fff');
+        this.deleteButton.setAttribute('stroke-width', '2');
+        this.deleteButton.dataset.connId = this.id;
+        this.flow.svg.appendChild(this.deleteButton);
+        this.deleteButton.addEventListener('click', (e) => {
+          e.stopPropagation(); // Evitar que el clic se propague al SVG
+          this.flow.removeConn(this.id);
+        });
+      }
+      const midX = (a.x + b.x) / 2;
+      const midY = (a.y + b.y) / 2;
+      this.deleteButton.setAttribute('cx', midX);
+      this.deleteButton.setAttribute('cy', midY);
+    } else if (this.deleteButton) {
+      this.deleteButton.remove();
+      this.deleteButton = null;
+    }
+  }
+  serialize() {
+    return {
+      id: this.id, from: this.fromBox.id, fromAnchor: this.fromAnchor,
+      to: this.toBox.id, toAnchor: this.toAnchor
+    };
+  }
+  destroy() { 
+    this.path.remove();
+    if (this.deleteButton) {
+      this.deleteButton.remove();
+      this.deleteButton = null;
+    }
+  }
+}
+// Rules
+const rules = {
+  trigger: ['questions'],
+  questions: ['questions', 'decision', 'end'],
+  decision: ['flow'],
+  flow: ['questions', 'end'],
+  end: []
+};
+const entradas = {
+  trigger: { max: 0, permitidos: {} },
+  questions: { max: Infinity, permitidos: { flow: 1, questions: Infinity, trigger: 1 } },
+  decision: { max: Infinity, permitidos: { questions: Infinity } },
+  flow: { max: Infinity, permitidos: { decision: Infinity } },
+  end: { max: Infinity, permitidos: { flow: Infinity, questions: Infinity, decision: Infinity } }
+};
+// Core: Flowchart
+class Flowchart {
+  constructor() {
+    this.stage = document.getElementById('canvas');
+    this.svg = document.getElementById('svg');
+    this.editSidebar = document.querySelector('.right-sidebar .edit-panel');
+    this.rightSidebar = document.querySelector('.right-sidebar');
+    this.boxes = new Map();
+    this.conns = new Map();
+    this.boxCounter = 0;
+    this.connCounter = 0;
+    this.pendingAnchor = null;
+    this._needsUpdate = false;
+    this.panX = 0;
+    this.panY = 0;
+    this.isPanning = false;
+    this.panStartX = 0;
+    this.panStartY = 0;
+    this.currentSelected = null;
+    this.verticalGuide = null;
+    this.horizontalGuide = null;
+    this._createAlignmentGuides();
+    this._bindEvents();
+    // Inicializa el panning con valores guardados si existen (al cargar)
+    this.updateTransform();
+  }
+  
+  _createAlignmentGuides() {
+    this.verticalGuide = document.createElement('div');
+    this.verticalGuide.className = 'alignment-guide vertical hidden';
+    this.stage.appendChild(this.verticalGuide);
+    
+    this.horizontalGuide = document.createElement('div');
+    this.horizontalGuide.className = 'alignment-guide horizontal hidden';
+    this.stage.appendChild(this.horizontalGuide);
+  }
+  
+  showAlignmentGuides(draggingBox) {
+    const threshold = 10; // Pixels threshold for alignment detection
+    let showVertical = false;
+    let showHorizontal = false;
+    let verticalX = 0;
+    let horizontalY = 0;
+    
+    // Check alignment with other boxes
+    for (const box of this.boxes.values()) {
+      if (box === draggingBox) continue;
+      
+      // Check vertical alignment (same X position)
+      if (Math.abs(box.x - draggingBox.x) <= threshold) {
+        showVertical = true;
+        verticalX = box.x;
+      }
+      
+      // Check horizontal alignment (same Y position)
+      if (Math.abs(box.y - draggingBox.y) <= threshold) {
+        showHorizontal = true;
+        horizontalY = box.y;
+      }
+      
+      // Check center alignment
+      const boxCenterX = box.x + box.w / 2;
+      const draggingCenterX = draggingBox.x + draggingBox.w / 2;
+      const boxCenterY = box.y + box.h / 2;
+      const draggingCenterY = draggingBox.y + draggingBox.h / 2;
+      
+      if (Math.abs(boxCenterX - draggingCenterX) <= threshold) {
+        showVertical = true;
+        verticalX = boxCenterX;
+      }
+      
+      if (Math.abs(boxCenterY - draggingCenterY) <= threshold) {
+        showHorizontal = true;
+        horizontalY = boxCenterY;
+      }
+    }
+    
+    // Show/hide and position guides
+    if (showVertical) {
+      this.verticalGuide.classList.remove('hidden');
+      this.verticalGuide.style.left = `${verticalX - this.panX}px`;
+    } else {
+      this.verticalGuide.classList.add('hidden');
+    }
+    
+    if (showHorizontal) {
+      this.horizontalGuide.classList.remove('hidden');
+      this.horizontalGuide.style.top = `${horizontalY - this.panY}px`;
+    } else {
+      this.horizontalGuide.classList.add('hidden');
+    }
+  }
+  
+  hideAlignmentGuides() {
+    this.verticalGuide.classList.add('hidden');
+    this.horizontalGuide.classList.add('hidden');
+  }
+  
+  _bindEvents() {
+    document.getElementById('addTrigger').addEventListener('click', () => this.addBox('trigger'));
+    document.getElementById('addQuestions').addEventListener('click', () => this.addBox('questions'));
+    document.getElementById('addDecision').addEventListener('click', () => this.addBox('decision'));
+    document.getElementById('addFlow').addEventListener('click', () => this.addBox('flow'));
+    document.getElementById('addEnd').addEventListener('click', () => this.addBox('end'));
+    document.getElementById('clearFlow').addEventListener('click', () => this.clear());
+    document.getElementById('saveFlow').addEventListener('click', () => this.save());
+    document.getElementById('loadFlow').addEventListener('click', () => document.getElementById('fileInput').click());
+    document.getElementById('fileInput').addEventListener('change', (e) => this.load(e));
+    this.stage.addEventListener('click', e => {
+      const anchor = e.target.closest('.anchor:not(.hidden)');
+      if (anchor) {
+        const box = this.boxes.get(anchor.dataset.box);
+        const pos = anchor.dataset.pos;
+        if (this.pendingAnchor) {
+          for (const conn of this.conns.values()) {
+            if ((conn.fromBox === this.pendingAnchor.box && conn.toBox === box) ||
+                (conn.fromBox === box && conn.toBox === this.pendingAnchor.box)) {
+              this.pendingAnchor.el.classList.remove('active-anchor');
+              this.pendingAnchor = null;
+              return;
+            }
+          }
+        }
+        if (this.pendingAnchor && this.pendingAnchor.box === box && this.pendingAnchor.pos === pos) {
+          this.pendingAnchor.el.classList.remove('active-anchor');
+          this.pendingAnchor = null;
+          return;
+        }
+        if (this.pendingAnchor && this.pendingAnchor.el) this.pendingAnchor.el.classList.remove('active-anchor');
+        anchor.classList.add('active-anchor');
+        if (this.pendingAnchor) {
+          this.createConn(this.pendingAnchor.box, this.pendingAnchor.pos, box, pos);
+          this.pendingAnchor.el.classList.remove('active-anchor');
+          anchor.classList.remove('active-anchor');
+          this.pendingAnchor = null;
+        } else {
+          this.pendingAnchor = { box, pos, el: anchor };
+        }
+        return;
+      }
+      if (this.pendingAnchor) {
+        this.pendingAnchor.el.classList.remove('active-anchor');
+        this.pendingAnchor = null;
+      }
+    });
+    this.stage.parentElement.addEventListener('mousedown', e => {
+      if (e.button === 2 || e.target.closest('.box, .anchor')) return;
+      this.isPanning = true;
+      this.panStartX = e.clientX;
+      this.panStartY = e.clientY;
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', e => {
+      if (!this.isPanning) return;
+      const dx = e.clientX - this.panStartX;
+      const dy = e.clientY - this.panStartY;
+      this.panX -= dx; // Actualiza panX
+      this.panY -= dy; // Actualiza panY
+      this.panStartX = e.clientX;
+      this.panStartY = e.clientY;
+      this.stage.style.backgroundPosition = `${-this.panX}px ${-this.panY}px`;
+      this.requestUpdate();
+      console.log('panX:', this.panX, 'panY:', this.panY); // Para depuración
+    });
+    window.addEventListener('mouseup', () => {
+      this.isPanning = false;
+    });
+  }
+  updateTransform() {
+    // No aplicamos transform al stage, el panning se maneja en las posiciones de los nodos
+    this.stage.style.backgroundPosition = `${-this.panX}px ${-this.panY}px`;
+    this.requestUpdate();
+  }
+  selectBox(box) {
+    if (box.inlineEditing) return; // No select decision
+    if (this.currentSelected) {
+      this.currentSelected.el.classList.remove('selected');
+    }
+    this.currentSelected = box;
+    box.el.classList.add('selected');
+    this.rightSidebar.classList.add('active');
+    this.populateEditSidebar();
+  }
+  populateEditSidebar() {
+    this.editSidebar.innerHTML = '';
+    if (!this.currentSelected) {
+      this.rightSidebar.classList.remove('active');
+      return;
+    }
+    const box = this.currentSelected;
+    const form = document.createElement('div');
+    form.className = 'edit-form';
+    // Title
+    const titleField = document.createElement('div');
+    titleField.className = 'box-field';
+    titleField.innerHTML = `<label>Título</label><input class="title-input" type="text" value="${box.title}">`;
+    const titleInput = titleField.querySelector('.title-input');
+    titleInput.addEventListener('input', e => {
+      box.title = e.target.value;
+      box.updateDisplay();
+      this.updateJSON();
+    });
+    form.appendChild(titleField);
+    // Key
+    const keyField = document.createElement('div');
+    keyField.className = 'box-field';
+    keyField.innerHTML = `<label>Key</label><input class="key-input" type="text" value="${box.key}">`;
+    const keyInput = keyField.querySelector('.key-input');
+    keyInput.addEventListener('input', e => {
+      box.key = e.target.value;
+      box._validateKey();
+      box.updateDisplay();
+      this.updateJSON();
+    });
+    form.appendChild(keyField);
+    if (box.type === 'trigger') {
+      // Triggers
+      const triggerField = document.createElement('div');
+      triggerField.className = 'box-field';
+      triggerField.innerHTML = `<label>Triggers</label><div class="trigger-list"></div>`;
+      form.appendChild(triggerField);
+      const addTriggerBtn = document.createElement('button');
+      addTriggerBtn.className = 'add-trigger';
+      addTriggerBtn.textContent = '+ Palabra';
+      addTriggerBtn.addEventListener('click', () => box.addTrigger());
+      form.appendChild(addTriggerBtn);
+    } else if (box.type === 'questions' || box.type === 'end') {
+      // Question
+      const questionField = document.createElement('div');
+      questionField.className = 'box-field';
+      questionField.innerHTML = `<label>Pregunta</label><input class="question-text" type="text" value="${box.question}">`;
+      const qInput = questionField.querySelector('.question-text');
+      qInput.addEventListener('input', e => {
+        box.question = e.target.value;
+        this.updateJSON();
+      });
+      form.appendChild(questionField);
+      if (box.type === 'questions') {
+        // Options
+        const optField = document.createElement('div');
+        optField.className = 'box-field';
+        optField.innerHTML = `<label>Options (key → [keywords])</label><div class="qopt-list"></div>`;
+        form.appendChild(optField);
+        const addOptBtn = document.createElement('button');
+        addOptBtn.className = 'add-qopt';
+        addOptBtn.textContent = '+ Opción';
+        addOptBtn.addEventListener('click', () => box.addQuestionOptionObject());
+        form.appendChild(addOptBtn);
+        // Files
+        const fileField = document.createElement('div');
+        fileField.className = 'box-field';
+        fileField.innerHTML = `<label>Archivos</label><div class="file-list"></div>`;
+        form.appendChild(fileField);
+        const addFileBtn = document.createElement('button');
+        addFileBtn.className = 'add-file';
+        addFileBtn.textContent = '+ Archivo';
+        addFileBtn.addEventListener('click', () => box.addFile());
+        form.appendChild(addFileBtn);
+      }
+    }
+    // Close button
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'close-edit';
+    closeBtn.textContent = 'Cerrar';
+    closeBtn.addEventListener('click', () => {
+      if (this.currentSelected) this.currentSelected.el.classList.remove('selected');
+      this.currentSelected = null;
+      this.populateEditSidebar();
+    });
+    form.appendChild(closeBtn);
+    this.editSidebar.appendChild(form);
+    // Render dynamic content after appending to DOM
+    if (box.type === 'trigger') {
+      box.renderTriggers();
+    } else if (box.type === 'questions') {
+      box.renderQuestionOptionsObject();
+      box.renderFiles();
+    }
+    box._validateKey();
+  }
+  addBox(type, x=60, y=60, key, title, question = '¿Qué desea?') {
+    if (type === 'trigger' && Array.from(this.boxes.values()).some(b => b.type === 'trigger')) {
+      return;
+    }
+    const prefixMap = { trigger: 'trigger', questions: 'question', decision: 'decision', flow: 'flow', end: 'end' };
+    const prefix = prefixMap[type] || type;
+    const id = `${prefix}_${Date.now()}`;
+    const defaultTitle = `${type.charAt(0).toUpperCase() + type.slice(1)} ${this.boxCounter + 1}`;
+    let box;
+    switch (type) {
+      case 'trigger':
+        box = new TriggerBox(this, id, x, y, title || defaultTitle, key || `${prefix}_${id.split('_')[1]}`);
+        break;
+      case 'questions':
+        box = new QuestionsBox(this, id, x, y, title || defaultTitle, key || `${prefix}_${id.split('_')[1]}`, question);
+        break;
+      case 'decision':
+        box = new DecisionBox(this, id, x, y, title || defaultTitle, key || `${prefix}_${id.split('_')[1]}`, question);
+        break;
+      case 'flow':
+        box = new FlowBox(this, id, x, y, title || defaultTitle, key || `${prefix}_${id.split('_')[1]}`);
+        break;
+      case 'end':
+        box = new EndBox(this, id, x, y, title || defaultTitle, key || `${prefix}_${id.split('_')[1]}`, question);
+        break;
+    }
+    this.boxes.set(id, box);
+    this.boxCounter++;
+    this.updateJSON();
+    return box;
+  }
+  removeBox(id) {
+    const box = this.boxes.get(id);
+    if (!box) return;
+    if (this.currentSelected === box) {
+      this.currentSelected = null;
+      this.populateEditSidebar();
+    }
+    [...this.conns.values()].forEach(conn => {
+      if (conn.fromBox === box || conn.toBox === box) {
+        conn.destroy();
+        this.conns.delete(conn.id);
+        if (conn.fromBox.type === 'decision' && conn.toBox === box) {
+          const index = parseInt(conn.fromAnchor.replace('out', ''));
+          if (conn.fromBox.options[index]) {
+            conn.fromBox.options[index].flowId = `option${index + 1}`;
+            conn.fromBox.renderBranches();
+          }
+        }
+      }
+    });
+    box.destroy();
+    this.boxes.delete(id);
+    this.requestUpdate();
+    this.updateJSON();
+  }
+  detectCycle(fromBox, toBox, visited = new Set(), path = new Set()) {
+    if (!toBox) return false;
+    if (path.has(toBox.id)) return true;
+    path.add(toBox.id);
+    visited.add(toBox.id);
+    for (const conn of this.conns.values()) {
+      if (conn.fromBox === toBox && !visited.has(conn.toBox)) {
+        if (this.detectCycle(fromBox, conn.toBox, visited, new Set(path))) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  createConn(fromBox, fromAnchor, toBox, toAnchor) {
+    if (fromBox === toBox) return;
+    if (!fromBox.isOutputAllowed(fromAnchor) || !toBox.isInputAllowed(toAnchor)) return;
+    if (!rules[fromBox.type] || !rules[fromBox.type].includes(toBox.type)) return;
+    const reglaEntrada = entradas[toBox.type];
+    if (!reglaEntrada) return;
+    const maxPorTipo = reglaEntrada.permitidos[fromBox.type];
+    if (maxPorTipo === undefined) return;
+    const count = Array.from(this.conns.values()).filter(c => c.toBox === toBox && c.fromBox.type === fromBox.type).length;
+    if (count >= maxPorTipo) return;
+    if (this.detectCycle(fromBox, toBox)) return;
+
+    // Nueva restricción: Una opción solo puede conectarse a un solo flow
+    if ((fromBox.type === 'questions' || fromBox.type === 'decision') && toBox.type === 'flow') {
+      const existingConn = Array.from(this.conns.values()).find(c => 
+        c.fromBox === fromBox && c.fromAnchor === fromAnchor && c.toBox.type === 'flow'
+      );
+      if (existingConn) return; // Si ya existe una conexión para esta opción, rechazar nueva conexión
+    }
+
+    const id = `c${++this.connCounter}`;
+    const conn = new Connector(this, id, fromBox, fromAnchor, toBox, toAnchor);
+    this.conns.set(id, conn);
+    if (fromBox.type === 'decision' && toBox.type === 'flow') {
+      const index = parseInt(fromAnchor.replace('out', ''));
+      if (fromBox.options[index]) {
+        fromBox.options[index].flowId = toBox.id;
+        fromBox.renderBranches();
+        fromBox.repositionOutputs();
+        this.updateJSON();
+      }
+    }
+    if (fromBox.type === 'trigger' || fromBox.type === 'flow') {
+      const steps = fromBox.steps;
+      let stepCounter = steps.length > 0 ? steps[steps.length - 1].step + 1 : 1;
+      if (toBox.type === 'decision') {
+        steps.push({ step: stepCounter++, ...toBox.serialize() });
+      } else if (toBox.type === 'questions' || toBox.type === 'end') {
+        steps.push({ step: stepCounter++, ...toBox.serialize() });
+      }
+    }
+    this.requestUpdate();
+    this.updateJSON();
+    return conn;
+  }
+  removeConn(connId) {
+    const conn = this.conns.get(connId);
+    if (conn) {
+      conn.destroy();
+      this.conns.delete(connId);
+      this.requestUpdate();
+      this.updateJSON();
+    }
+  }
+  requestUpdate() {
+    if (this._needsUpdate) return;
+    this._needsUpdate = true;
+    requestAnimationFrame(() => {
+      this._needsUpdate = false;
+      this._render();
+    });
+  }
+  _render() {
+    for (const c of this.conns.values()) c.update();
+    for (const b of this.boxes.values()) b.updatePosition();
+  }
+  updateJSON() {
+    const stepsMap = new Map();
+    this.boxes.forEach(box => {
+      if (box.type === 'trigger' || box.type === 'flow') {
+        stepsMap.set(box.id, []);
+      }
+    });
+    this.boxes.forEach(triggerBox => {
+      if (triggerBox.type !== 'trigger') return;
+      const steps = [];
+      let currentBox = triggerBox;
+      let stepCounter = 1;
+      const visited = new Set();
+      while (currentBox) {
+        visited.add(currentBox.id);
+        const nextConn = [...this.conns.values()].find(c => c.fromBox === currentBox &&
+          (c.toBox.type === 'questions' || c.toBox.type === 'decision' || c.toBox.type === 'end'));
+        if (!nextConn) break;
+        const nextBox = nextConn.toBox;
+        steps.push({ step: stepCounter++, ...nextBox.serialize() });
+        if (nextBox.type === 'decision') break;
+        currentBox = nextBox;
+      }
+      stepsMap.set(triggerBox.id, steps);
+    });
+    this.boxes.forEach(flowBox => {
+      if (flowBox.type !== 'flow') return;
+      const steps = [];
+      let currentBox = flowBox;
+      let stepCounter = 1;
+      const visited = new Set();
+      while (currentBox) {
+        visited.add(currentBox.id);
+        const nextConn = [...this.conns.values()].find(c => c.fromBox === currentBox &&
+          (c.toBox.type === 'questions' || c.toBox.type === 'end'));
+        if (!nextConn) break;
+        const nextBox = nextConn.toBox;
+        steps.push({ step: stepCounter++, ...nextBox.serialize() });
+        currentBox = nextBox;
+      }
+      stepsMap.set(flowBox.id, steps);
+    });
+    this.boxes.forEach(box => {
+      if (box.type === 'trigger' || box.type === 'flow') {
+        box.steps = stepsMap.get(box.id) || [];
+      }
+    });
+    const allStepIds = new Set();
+    stepsMap.forEach(steps => {
+      steps.forEach(step => allStepIds.add(step.id));
+    });
+    const data = {
+      boxes: [...this.boxes.values()]
+        .filter(b => !allStepIds.has(b.id) || b.type === 'trigger' || b.type === 'flow' || b.type === 'decision')
+        .map(b => b.serialize()),
+      conns: [...this.conns.values()].map(c => c.serialize()),
+      panX: this.panX,
+      panY: this.panY
+    };
+    document.getElementById('jsonView').textContent = JSON.stringify(data, null, 2);
+  }
+  serialize() {
+    return {
+      boxes: [...this.boxes.values()].map(b => b.serialize()),
+      conns: [...this.conns.values()].map(c => c.serialize()),
+      panX: this.panX,
+      panY: this.panY,
+      boxCounter: this.boxCounter,
+      connCounter: this.connCounter
+    };
+  }
+  deserialize(data) {
+    this.clear(false);
+    this.panX = data.panX || 0;
+    this.panY = data.panY || 0;
+    this.boxCounter = data.boxCounter || 0;
+    this.connCounter = data.connCounter || 0;
+    data.boxes.forEach(b => {
+      let box;
+      switch (b.type) {
+        case 'trigger':
+          box = new TriggerBox(this, b.id, b.x, b.y, b.title, b.key);
+          box.triggers = b.triggers || [];
+          box.steps = b.steps || [];
+          break;
+        case 'questions':
+          box = new QuestionsBox(this, b.id, b.x, b.y, b.title, b.key, b.question || '¿Qué desea?');
+          box.options = Object.entries(b.options || {}).map(([key, keywords]) => ({ key, keywords }));
+          box.files = b.files || [];
+          break;
+        case 'decision':
+          box = new DecisionBox(this, b.id, b.x, b.y, b.title, b.key, b.question || '¿Qué desea?');
+          box.options = Object.entries(b.options || {}).map(([flowId, keywords]) => ({ flowId, keywords }));
+          box.options.forEach((_, i) => {
+            const pos = `out${i}`;
+            if (!box.anchors[pos]) box.addAnchor(pos);
+          });
+          box.renderBranches();
+          box.repositionOutputs();
+          box.h = 70 + (box.options.length * 25);
+          box.el.style.minHeight = `${box.h}px`;
+          break;
+        case 'flow':
+          box = new FlowBox(this, b.id, b.x, b.y, b.title, b.key);
+          box.steps = b.steps || [];
+          break;
+        case 'end':
+          box = new EndBox(this, b.id, b.x, b.y, b.title, b.key, b.question || '¿Qué desea?');
+          break;
+      }
+      if (box._validateKey) box._validateKey();
+      this.boxes.set(b.id, box);
+    });
+    data.conns.forEach(c => {
+      const fromBox = this.boxes.get(c.from);
+      const toBox = this.boxes.get(c.to);
+      if (fromBox && toBox) {
+        const conn = new Connector(this, c.id, fromBox, c.fromAnchor, toBox, c.toAnchor);
+        this.conns.set(c.id, conn);
+      }
+    });
+    this.updateTransform();
+    this.requestUpdate();
+    this.updateJSON();
+  }
+  save() {
+    const data = this.serialize();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'flowchart.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  load(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        this.deserialize(data);
+      } catch (err) {
+        alert('Error al cargar el archivo: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }
+  clear(pushToHistory = true) {
+    for (const b of this.boxes.values()) b.destroy();
+    this.boxes.clear();
+    for (const c of this.conns.values()) c.destroy();
+    this.conns.clear();
+    this.boxCounter = 0;
+    this.connCounter = 0;
+    this.panX = 0;
+    this.panY = 0;
+    this.currentSelected = null;
+    this.populateEditSidebar();
+    this.updateTransform();
+    this.updateJSON();
+  }
+}
+const FLOW = new Flowchart();
+</script>
+</body>
+</html>
