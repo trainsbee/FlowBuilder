@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Flow Builder Profesional</title>
+<style>
+  body { margin:0; font-family:Arial; display:flex; height:100vh; overflow:hidden; }
+  .sidebar { width:250px; background:#111; padding:10px; display:flex; flex-direction:column; }
+  .sidebar button { margin-bottom:5px; padding:6px; background:#2563eb; border:none; color:white; cursor:pointer; }
+  .canvas { 
+    flex:1; 
+    position:relative; 
+    background:#222; 
+    overflow:hidden; 
+    cursor:grab; 
+    touch-action:none; 
+    user-select:none;
+
+      background-color: #171717;
+    
+    /* Patrón de puntos */
+    background-image: 
+      radial-gradient(circle at 10px 10px, #4c4c4c 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+  .node { 
+    width:280px; 
+    background:#444; 
+    border-radius:6px; 
+    position:absolute; 
+    cursor:grab; 
+    color:white; 
+    font-size:12px; 
+    user-select:none; 
+    padding:6px; 
+    box-sizing:border-box; 
+  }
+  .node-header { font-weight:bold; text-align:center; background:#333; padding:4px; border-radius:4px; }
+  .node-body input, .node-body textarea, .node-body button { 
+    width:calc(100% - 12px); 
+    margin-top:4px; 
+    margin-bottom:4px; 
+    font-size:12px; 
+    padding:2px 4px; 
+    display:block; 
+    box-sizing:border-box; 
+  }
+  .node-body button { width:auto; cursor:pointer; }
+  .port { width:12px; height:12px; border-radius:50%; position:absolute; background:#0f0; cursor:pointer; }
+  .port.input { left:-6px; top:50%; transform:translateY(-50%); }
+  .port.output { right:-6px; top:50%; transform:translateY(-50%); }
+  .choice-option, .file-item { position:relative; border-top:1px solid #666; padding-top:2px; margin-top:2px; }
+  svg.connections { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+  path { stroke:#0f0; stroke-width:2; fill:none; }
+  .delete-connection{
+  position:absolute;
+  background:#ff3b3b;
+  color:white;
+  font-size:12px;
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  z-index:50;
+  pointer-events:auto;
+  transform:translate(-50%, -50%);
+}
+
+.delete-connection:hover{
+  background:#ff0000;
+}
+
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <button onclick="addNode('trigger')">➕ Trigger</button>
+  <button onclick="addNode('message')">➕ Message</button>
+  <button onclick="addNode('choice')">➕ Choice</button>
+  <button onclick="addNode('end')">🏁 End</button>
+  <hr>
+  <button onclick="document.getElementById('fileInput').click()">📂 Cargar JSON</button>
+  <input type="file" id="fileInput" style="display:none" accept=".json" onchange="handleFileLoad(event)">
+  <button onclick="downloadJSON()">💾 Descargar JSON</button>
+  <hr>
+  <div>JSON en tiempo real:</div>
+  <pre id="jsonDisplay" style="color:#0f0; font-size:12px; overflow:auto; max-height:400px;"></pre>
+</div>
+
+<div class="canvas" id="canvas">
+  <svg class="connections"></svg>
+</div>
+
+<script>
+// ── ESTRUCTURA PRINCIPAL ──────────────────────────────────────────
+let flow = { nodes:{}, panX:0, panY:0 };
+let nodeCount = 0;
+
+const nodeTemplates = {
+  trigger: () => ({ id:"", type:"trigger", keywords:["hola","hi"], x:0, y:0, next:null, keyname:"" }),
+  message: () => ({ id:"", type:"message", text:"Nuevo mensaje", files:[], x:0, y:0, next:null, keyname:"" }),
+  choice: () => ({ id:"", type:"choice", x:0, y:0, text:"Mensaje general del nodo", options:{} }),
+  end: () => ({ id:"", type:"end", text:"¡Gracias! Este es el final del flow.", files:[], x:0, y:0 })
+};
+
+// ── FUNCIONES AUXILIARES ──────────────────────────────────────────
+function generateOptionId(){
+  return "opt_" + Date.now() + Math.floor(Math.random()*10000);
+}
+
+function addNode(type){
+  if(type === 'trigger' && Object.values(flow.nodes).some(n => n.type === 'trigger')) {
+    alert('Solo se permite un trigger.');
+    return;
+  }
+
+  const id = "n_" + (++nodeCount);
+  const template = nodeTemplates[type]();
+  template.id = id;
+  template.x = 80 + ((nodeCount-1)%5)*320;
+  template.y = 60 + Math.floor((nodeCount-1)/5)*180;
+
+  flow.nodes[id] = template;
+  createNodeUI(id, type);
+  updateJSON();
+  drawConnections();
+}
+
+// ── CREACIÓN VISUAL DE NODO ───────────────────────────────────────
+function createNodeUI(id, type){
+  const node = document.createElement("div");
+  node.className = "node";
+  node.dataset.id = id;
+  node.style.left = (flow.nodes[id].x + flow.panX) + "px";
+  node.style.top = (flow.nodes[id].y + flow.panY) + "px";
+
+  const keynameInput = `<div>Variable (keyname):<br>
+    <input type="text" value="${flow.nodes[id].keyname||''}"
+      oninput="flow.nodes['${id}'].keyname=this.value; updateJSON(); repositionPorts('${id}');"></div>`;
+
+  let bodyHTML = "";
+  if(type==="trigger"){
+    bodyHTML = keynameInput + `<div>Keywords (separados por coma):<br>
+      <input type="text" value="${flow.nodes[id].keywords.join(', ')}"
+        oninput="flow.nodes['${id}'].keywords=this.value.split(',').map(k=>k.trim()); updateJSON(); repositionPorts('${id}');"></div>`;
+  }
+  else if(type==="message" || type==="end"){
+    let kh = type==="message" ? keynameInput : "";
+    bodyHTML = kh + `
+      <div>Texto:<br><textarea rows="4" oninput="flow.nodes['${id}'].text=this.value; updateJSON(); repositionPorts('${id}');">${flow.nodes[id].text||''}</textarea></div>
+      <br>Archivos:<br>
+      <div id="filesContainer_${id}"></div>
+      <button onclick="addFileInput('${id}')">+ Agregar archivo</button>`;
+  }
+  else if(type==="choice"){
+    bodyHTML = `
+      <div>Mensaje general:<br><textarea rows="3" oninput="flow.nodes['${id}'].text=this.value; updateJSON(); repositionPorts('${id}');">${flow.nodes[id].text||''}</textarea></div>
+      <div id="optionsContainer_${id}"></div>
+      <button onclick="addChoiceOption('${id}')">+ Agregar opción</button>`;
+  }
+
+  node.innerHTML = `
+    <div class="node-header">${type.toUpperCase()}
+      <button style="float:right;background:none;border:none;color:white;cursor:pointer;" onclick="removeNode('${id}')">×</button>
+    </div>
+    <div class="node-body">${bodyHTML}</div>`;
+
+  document.getElementById("canvas").appendChild(node);
+
+  if(type !== 'trigger'){
+    const inputPort = document.createElement("div");
+    inputPort.className = "port input";
+    node.appendChild(inputPort);
+  }
+
+  if(type==="trigger" || type==="message"){
+    const outputPort = document.createElement("div");
+    outputPort.className = "port output";
+    node.appendChild(outputPort);
+    setupDragConnection(outputPort, id, "next");
+  }
+  else if(type==="choice"){
+    renderChoiceOptions(id, true);
+  }
+
+  makeDraggable(node);
+
+  if(type==="message" || type==="end") renderFileInputs(id);
+
+  const ro = new ResizeObserver(() => repositionPorts(id));
+  ro.observe(node);
+}
+
+// ── ARCHIVOS (CORREGIDO - SIN PERDER FOCO) ─────────────────────────
+function addFileInput(nodeId){
+  flow.nodes[nodeId].files = flow.nodes[nodeId].files || [];
+  flow.nodes[nodeId].files.push({url:"", type:"other"});
+  renderFileInputs(nodeId);
+  updateJSON();
+}
+
+function renderFileInputs(nodeId){
+  const container = document.getElementById(`filesContainer_${nodeId}`);
+  if(!container) return;
+  container.innerHTML = "";
+
+  (flow.nodes[nodeId].files || []).forEach((f, i) => {
+    const div = document.createElement("div");
+    div.className = "file-item";
+    div.innerHTML = `
+      <input type="text" value="${f.url||''}" placeholder="URL del archivo"
+        data-index="${i}" data-nodeid="${nodeId}"
+        oninput="updateFileURL('${nodeId}', ${i}, this.value)">
+      <span class="file-type" style="font-size:10px;color:#aaa">(${f.type})</span>
+      <button onclick="removeFile('${nodeId}',${i})">×</button>`;
+    container.appendChild(div);
+  });
+}
+
+function updateFileURL(nodeId, index, value){
+  // Actualizamos el modelo
+  flow.nodes[nodeId].files[index] = detectFileType(value);
+
+  // Solo actualizamos el texto del tipo (¡NO recreamos todo!)
+  const container = document.getElementById(`filesContainer_${nodeId}`);
+  if(container){
+    const typeSpan = container.querySelector(`.file-item:nth-child(${index+1}) .file-type`);
+    if(typeSpan){
+      typeSpan.textContent = `(${flow.nodes[nodeId].files[index].type})`;
+    }
+  }
+
+  updateJSON();
+  repositionPorts(nodeId);
+}
+
+function removeFile(nodeId, index){
+  flow.nodes[nodeId].files.splice(index, 1);
+  renderFileInputs(nodeId); // Aquí sí recreamos porque se eliminó uno
+  updateJSON();
+  repositionPorts(nodeId);
+}
+
+function detectFileType(url){
+  const ext = (url.match(/\.([0-9a-z]+)(?:[?#]|$)/i)||[])[1]?.toLowerCase()||"";
+  let type = "other";
+  if("jpg jpeg png gif webp".includes(ext)) type="image";
+  else if("mp4 webm mov".includes(ext)) type="video";
+  else if("mp3 wav ogg".includes(ext)) type="audio";
+  return {url, type};
+}
+
+// ── OPCIONES CHOICE ───────────────────────────────────────────────
+function addChoiceOption(nodeId){
+  const key = generateOptionId();
+  flow.nodes[nodeId].options[key] = {label:"Nueva opción", keywords:[], next:null, keyname:""};
+  renderChoiceOptions(nodeId, true);
+  updateJSON();
+}
+
+function removeChoiceOption(nodeId, key){
+  const node = flow.nodes[nodeId];
+  if(node.options[key]?._uiPort) node.options[key]._uiPort.remove();
+  delete node.options[key];
+  renderChoiceOptions(nodeId, true);
+  updateJSON();
+}
+
+function renderChoiceOptions(nodeId, initPorts = false){
+  const nodeEl = document.querySelector(`[data-id="${nodeId}"]`);
+  const node = flow.nodes[nodeId];
+
+  Object.values(node.options).forEach(opt => {
+    if(opt._uiPort){ opt._uiPort.remove(); delete opt._uiPort; }
+  });
+
+  const container = document.getElementById(`optionsContainer_${nodeId}`);
+  container.innerHTML = "";
+
+  Object.entries(node.options).forEach(([key, option], index) => {
+    const div = document.createElement("div");
+    div.className = "choice-option";
+    div.innerHTML = `
+      Variable:<br><input type="text" value="${option.keyname||''}" placeholder="Nombre variable">
+      Etiqueta:<br><input type="text" value="${option.label||''}" placeholder="Texto visible">
+      Keywords:<br><input type="text" value="${option.keywords?.join(', ')||''}" placeholder="separados por coma">
+      <button onclick="removeChoiceOption('${nodeId}','${key}')">×</button>`;
+
+    const inputs = div.querySelectorAll("input");
+    inputs[0].oninput = () => { option.keyname = inputs[0].value; updateJSON(); repositionPorts(nodeId); };
+    inputs[1].oninput = () => { option.label = inputs[1].value; updateJSON(); repositionPorts(nodeId); };
+    inputs[2].oninput = () => { option.keywords = inputs[2].value.split(',').map(k=>k.trim()); updateJSON(); repositionPorts(nodeId); };
+
+    container.appendChild(div);
+
+    if(initPorts){
+      const port = document.createElement("div");
+      port.className = "port output";
+      nodeEl.appendChild(port);
+      option._uiPort = port;
+      setupDragConnection(port, nodeId, key);
+    }
+  });
+
+  repositionPorts(nodeId);
+}
+
+// ── POSICIONAMIENTO DE PUERTOS ────────────────────────────────────
+function repositionPorts(nodeId){
+  const nodeEl = document.querySelector(`[data-id="${nodeId}"]`);
+  if(!nodeEl) return;
+
+  const node = flow.nodes[nodeId];
+
+  if(node.type === "choice"){
+    const opts = document.querySelectorAll(`#optionsContainer_${nodeId} .choice-option`);
+    let i = 0;
+    for(const key in node.options){
+      const port = node.options[key]._uiPort;
+      if(port && opts[i]){
+        const r = opts[i].getBoundingClientRect();
+        const nr = nodeEl.getBoundingClientRect();
+        port.style.top = (r.top - nr.top + r.height/2 - 6) + "px";
+        i++;
+      }
+    }
+  }
+
+  const inPort = nodeEl.querySelector(".port.input");
+  if(inPort) inPort.style.top = (nodeEl.offsetHeight/2 - 6) + "px";
+
+  if(node.type === "trigger" || node.type === "message"){
+    const outPort = nodeEl.querySelector(".port.output");
+    if(outPort) outPort.style.top = (nodeEl.offsetHeight/2 - 6) + "px";
+  }
+
+  drawConnections();
+}
+
+// ── ARRASTRAR NODOS ───────────────────────────────────────────────
+function makeDraggable(el){
+  let startX, startY, offsetX, offsetY;
+
+  el.onmousedown = e => {
+    if(["INPUT","TEXTAREA","BUTTON"].includes(e.target.tagName)) return;
+    e.preventDefault();
+
+    startX = e.clientX;
+    startY = e.clientY;
+    offsetX = el.offsetLeft;
+    offsetY = el.offsetTop;
+
+    el.style.cursor = "grabbing";
+
+    const move = e2 => {
+      const dx = e2.clientX - startX;
+      const dy = e2.clientY - startY;
+      const newX = offsetX + dx;
+      const newY = offsetY + dy;
+
+      el.style.left = newX + "px";
+      el.style.top = newY + "px";
+
+      const id = el.dataset.id;
+      flow.nodes[id].x = newX - flow.panX;
+      flow.nodes[id].y = newY - flow.panY;
+
+      drawConnections();
+      updateJSON();
+    };
+
+    document.onmousemove = move;
+    document.onmouseup = () => {
+      el.style.cursor = "grab";
+      document.onmousemove = null;
+      document.onmouseup = null;
+    };
+  };
+}
+
+// ── CONEXIONES ────────────────────────────────────────────────────
+let dragConnection = null;
+
+function setupDragConnection(portEl, nodeId, portKey){
+  portEl.addEventListener("mousedown", e => {
+    e.stopPropagation();
+
+    const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+    document.querySelector("svg.connections").appendChild(path);
+
+    dragConnection = {fromNodeId:nodeId, fromPortKey:portKey, path};
+
+    document.onmousemove = e2 => {
+      const rect = document.getElementById("canvas").getBoundingClientRect();
+      const start = getPortCenter(nodeId, portKey);
+      const x = e2.clientX - rect.left;
+      const y = e2.clientY - rect.top;
+
+      path.setAttribute(
+        "d",
+        `M${start.x},${start.y} C${start.x+80},${start.y} ${x-80},${y} ${x},${y}`
+      );
+    };
+
+    document.onmouseup = e2 => {
+      const targetNode = document
+        .elementFromPoint(e2.clientX, e2.clientY)
+        ?.closest(".node");
+
+      if(targetNode){
+        connectNodes(
+          dragConnection.fromNodeId,
+          dragConnection.fromPortKey,
+          targetNode.dataset.id
+        );
+      }
+
+      path.remove();
+      dragConnection = null;
+      document.onmousemove = null;
+      document.onmouseup = null;
+
+      drawConnections();
+      updateJSON();
+    };
+  });
+}
+
+
+function connectNodes(fromId, fromPort, toId){
+  if(fromId === toId) return;
+  const toNode = flow.nodes[toId];
+  if(toNode.type === 'trigger') return;
+
+  if(toNode.type !== 'end' && getIncomingCount(toId) > 0){
+    alert("Este nodo ya tiene una conexión entrante.");
+    return;
+  }
+
+  const fromNode = flow.nodes[fromId];
+  if(fromPort === "next"){
+    fromNode.next = toId;
+  } else if(fromNode.type === "choice" && fromNode.options[fromPort]){
+    fromNode.options[fromPort].next = toId;
+  }
+}
+
+function disconnect(nodeId, portKey){
+  const node = flow.nodes[nodeId];
+  if(portKey === "next"){
+    node.next = null;
+  } else if(node.options?.[portKey]){
+    node.options[portKey].next = null;
+  }
+  drawConnections();
+  updateJSON();
+}
+
+function getIncomingCount(toId){
+  let count = 0;
+  for(const n of Object.values(flow.nodes)){
+    if(n.next === toId) count++;
+    if(n.type === 'choice'){
+      Object.values(n.options||{}).forEach(opt => { if(opt.next === toId) count++; });
+    }
+  }
+  return count;
+}
+
+function getPortCenter(nodeId, portKey){
+  const nodeEl = document.querySelector(`[data-id="${nodeId}"]`);
+  let portEl;
+  const node = flow.nodes[nodeId];
+
+  if(node.type === "trigger" || node.type === "message"){
+    portEl = nodeEl.querySelector(".port.output");
+  } else if(node.type === "choice"){
+    portEl = node.options[portKey]?._uiPort;
+  }
+
+  if(!portEl) return {x:0,y:0};
+
+  const r = portEl.getBoundingClientRect();
+  const cr = document.getElementById("canvas").getBoundingClientRect();
+
+  return {
+    x: r.left + r.width/2 - cr.left,
+    y: r.top + r.height/2 - cr.top
+  };
+}
+
+function drawConnections(){
+  document.querySelectorAll(".delete-connection").forEach(e => e.remove());
+
+  const svg = document.querySelector("svg.connections");
+  svg.innerHTML = "";
+
+  for(const [id, node] of Object.entries(flow.nodes)){
+    if(node.next){
+      drawPath(id, "next", node.next);
+    }
+    if(node.type === "choice"){
+      for(const [key, opt] of Object.entries(node.options||{})){
+        if(opt.next) drawPath(id, key, opt.next);
+      }
+    }
+  }
+}
+
+function drawPath(fromId, fromPort, toId){
+  const start = getPortCenter(fromId, fromPort);
+  const toEl = document.querySelector(`[data-id="${toId}"]`);
+  if(!toEl) return;
+
+  const inPort = toEl.querySelector(".port.input");
+  if(!inPort) return;
+
+  const r = inPort.getBoundingClientRect();
+  const cr = document.getElementById("canvas").getBoundingClientRect();
+
+  const end = {
+    x: r.left + r.width/2 - cr.left,
+    y: r.top + r.height/2 - cr.top
+  };
+
+  // SVG PATH
+  const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+  const d = `M${start.x},${start.y} 
+             C${start.x+80},${start.y} 
+              ${end.x-80},${end.y} 
+              ${end.x},${end.y}`;
+
+  path.setAttribute("d", d);
+  document.querySelector("svg.connections").appendChild(path);
+
+  // 📍 Punto medio (Bezier simple)
+  const midX = (start.x + end.x) / 2;
+  const midY = (start.y + end.y) / 2;
+
+  // ❌ BOTÓN DELETE
+  const del = document.createElement("span");
+  del.className = "delete-connection";
+  del.textContent = "×";
+
+  del.style.left = midX + "px";
+  del.style.top  = midY + "px";
+
+  del.onclick = (e) => {
+    e.stopPropagation();
+    disconnect(fromId, fromPort);
+  };
+
+  document.getElementById("canvas").appendChild(del);
+}
+
+
+// ── PANNING ───────────────────────────────────────────────────────
+const canvas = document.getElementById("canvas");
+
+let isPanning = false;
+let startPanX, startPanY, originPanX, originPanY;
+let currentPointerId = null;
+
+canvas.addEventListener("pointerdown", e => {
+  if (e.button !== 0) return;
+  if (e.target !== canvas) return;
+
+  e.preventDefault();
+  
+  isPanning = true;
+  currentPointerId = e.pointerId;
+  
+  canvas.setPointerCapture(e.pointerId);
+  
+  startPanX = e.clientX;
+  startPanY = e.clientY;
+  originPanX = flow.panX;
+  originPanY = flow.panY;
+  
+  canvas.style.cursor = "grabbing";
+  console.log("Panning started");
+});
+
+document.addEventListener("pointermove", e => {
+  if (!isPanning) return;
+  if (e.pointerId !== currentPointerId) return;
+
+  const dx = e.clientX - startPanX;
+  const dy = e.clientY - startPanY;
+
+  flow.panX = originPanX + dx;
+  flow.panY = originPanY + dy;
+
+  for (const id in flow.nodes) {
+    const el = document.querySelector(`[data-id="${id}"]`);
+    if (el) {
+      el.style.left = (flow.nodes[id].x + flow.panX) + "px";
+      el.style.top  = (flow.nodes[id].y + flow.panY) + "px";
+    }
+  }
+
+  drawConnections();
+});
+
+document.addEventListener("pointerup", endPanning);
+document.addEventListener("pointercancel", endPanning);
+
+function endPanning(e) {
+  if (!isPanning) return;
+  if (e.pointerId !== currentPointerId) return;
+
+  isPanning = false;
+  currentPointerId = null;
+
+  canvas.style.cursor = "grab";
+  console.log("Panning ended");
+  
+  if (canvas.hasPointerCapture(e.pointerId)) {
+    canvas.releasePointerCapture(e.pointerId);
+  }
+  updateJSON();
+}
+
+// ── ELIMINAR NODO ─────────────────────────────────────────────────
+function removeNode(id){
+  const node = flow.nodes[id];
+  if(node.type === "choice"){
+    Object.values(node.options||{}).forEach(opt => {
+      if(opt._uiPort) opt._uiPort.remove();
+    });
+  }
+  document.querySelector(`.node[data-id="${id}"]`)?.remove();
+
+  for(const n of Object.values(flow.nodes)){
+    if(n.next === id) n.next = null;
+    if(n.type === "choice"){
+      Object.values(n.options||{}).forEach(opt => {
+        if(opt.next === id) opt.next = null;
+      });
+    }
+  }
+
+  delete flow.nodes[id];
+  drawConnections();
+  updateJSON();
+}
+
+// ── GUARDAR / CARGAR ──────────────────────────────────────────────
+function downloadJSON(){
+  const data = {
+    version: "1.2",
+    panX: flow.panX,
+    panY: flow.panY,
+    nodes: {},
+    connections: []
+  };
+
+  for(const [id, node] of Object.entries(flow.nodes)){
+    const copy = JSON.parse(JSON.stringify(node));
+    if(copy.type === "choice"){
+      for(const k in copy.options){
+        delete copy.options[k]._uiPort;
+      }
+    }
+    data.nodes[id] = copy;
+  }
+
+  for(const [id, node] of Object.entries(flow.nodes)){
+    if(node.next){
+      data.connections.push({ from: id, fromPort: "next", to: node.next });
+    }
+    if(node.type === "choice"){
+      for(const [key, opt] of Object.entries(node.options||{})){
+        if(opt.next){
+          data.connections.push({ from: id, fromPort: key, to: opt.next });
+        }
+      }
+    }
+  }
+
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `flow_${new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  updateJSON();
+}
+
+function handleFileLoad(event){
+  const file = event.target.files[0];
+  if(!file) return;
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if(!data?.nodes) throw new Error("No se encontró campo 'nodes'");
+
+      document.querySelectorAll('.node').forEach(n=>n.remove());
+      document.querySelector("svg.connections").innerHTML = "";
+      flow.nodes = {};
+      nodeCount = 0;
+
+      flow.panX = data.panX ?? 0;
+      flow.panY = data.panY ?? 0;
+
+      const idMap = new Map();
+      for(const [oldId, nodeData] of Object.entries(data.nodes)){
+        if(!["trigger","message","choice","end"].includes(nodeData.type)) continue;
+        const newId = "n_" + (++nodeCount);
+        idMap.set(oldId, newId);
+
+        const template = nodeTemplates[nodeData.type]();
+        Object.assign(template, nodeData);
+        template.id = newId;
+        template.x = nodeData.x ?? 100;
+        template.y = nodeData.y ?? 100;
+
+        if(template.type === "choice"){
+          for(const k in template.options){
+            delete template.options[k]._uiPort;
+          }
+        }
+
+        flow.nodes[newId] = template;
+        createNodeUI(newId, nodeData.type);
+      }
+
+      if(Array.isArray(data.connections)){
+        data.connections.forEach(c => {
+          const fromId = idMap.get(c.from);
+          const toId = idMap.get(c.to);
+          if(!fromId || !toId) return;
+          const node = flow.nodes[fromId];
+          if(c.fromPort === "next"){
+            node.next = toId;
+          } else if(node.type === "choice" && node.options[c.fromPort]){
+            node.options[c.fromPort].next = toId;
+          }
+        });
+      }
+
+      setTimeout(() => {
+        for(const id in flow.nodes){
+          repositionPorts(id);
+        }
+        drawConnections();
+        updateJSON();
+      }, 120);
+
+      alert("¡Flow cargado correctamente!");
+    } catch(err){
+      console.error(err);
+      alert("Error al cargar el archivo JSON:\n" + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ── ACTUALIZAR VISTA JSON ─────────────────────────────────────────
+function updateJSON(){
+  const clean = {
+    version: "1.2",
+    panX: flow.panX,
+    panY: flow.panY,
+    nodes: {},
+    connections: []
+  };
+
+  for(const [id, node] of Object.entries(flow.nodes)){
+    const copy = JSON.parse(JSON.stringify(node));
+    if(copy.type === "choice"){
+      for(const k in copy.options){
+        delete copy.options[k]._uiPort;
+      }
+    }
+    clean.nodes[id] = copy;
+  }
+
+  for(const [id, node] of Object.entries(flow.nodes)){
+    if(node.next){
+      clean.connections.push({from:id, fromPort:"next", to:node.next});
+    }
+    if(node.type === "choice"){
+      for(const [k, opt] of Object.entries(node.options||{})){
+        if(opt.next){
+          clean.connections.push({from:id, fromPort:k, to:opt.next});
+        }
+      }
+    }
+  }
+
+  document.getElementById("jsonDisplay").textContent = JSON.stringify(clean, null, 2);
+}
+
+// Inicializar
+updateJSON();
+</script>
+</body>
+</html>
